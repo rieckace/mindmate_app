@@ -1,5 +1,3 @@
-import streamlit as st
-import pandas as pd
 import os
 import datetime
 import matplotlib.pyplot as plt
@@ -11,6 +9,8 @@ from io import BytesIO
 import calendar
 import plotly.graph_objects as go
 import numpy as np
+import pandas as pd
+import streamlit as st
 
 # --- Data Connection Logic ---
 DATA_FILE = "mood_logs.csv"
@@ -104,16 +104,23 @@ def generate_pdf_report(goals_checked, mood_df, username):
 
     if not mood_df.empty and len(mood_df) > 1:
         try:
+            # Ensure only date (not time) is used
+            mood_df = mood_df.copy()
+            mood_df["Date"] = pd.to_datetime(mood_df["Date"]).dt.date
+
             # Create a plot specifically for the PDF
             fig, ax = plt.subplots(figsize=(7, 3.5))
             ax.plot(mood_df["Date"], mood_df["Mood_Score"], marker='o', linestyle='-', color='#667eea', linewidth=2)
             
+            # Formatting for date-only X-axis
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            fig.autofmt_xdate()
+
             # Styling for a light background PDF
             ax.set_title("Recent Mood Trend", fontsize=12)
             ax.set_xlabel("Date", fontsize=10)
             ax.set_ylabel("Mood Score (1-5)", fontsize=10)
             ax.grid(True, alpha=0.3)
-            plt.xticks(rotation=45)
             plt.tight_layout()
 
             # Save the plot to an in-memory buffer
@@ -123,7 +130,7 @@ def generate_pdf_report(goals_checked, mood_df, username):
             
             # Draw image on PDF
             p.drawImage(ImageReader(img_buffer), 72, y_position, width=450, height=200)
-            plt.close(fig)  # Close the figure to free memory
+            plt.close(fig)
         except Exception as e:
             p.setFont("Helvetica", 11)
             p.drawString(90, y_position + 100, f"Chart error: {str(e)}")
@@ -137,30 +144,25 @@ def generate_pdf_report(goals_checked, mood_df, username):
 
 # --- MONTHLY CALENDAR FUNCTION ---
 def create_monthly_calendar(user_logs_df, current_date):
-    # Create a calendar for the current month
     cal = calendar.monthcalendar(current_date.year, current_date.month)
     mood_mapping = {"Happy": 5, "Neutral": 3, "Anxious": 2, "Sad": 1, "Angry": 1}
     user_logs_df['Mood_Score'] = user_logs_df['mood'].map(mood_mapping).fillna(0)
     
-    # Create a dictionary of mood scores by date
     mood_by_date = {}
     for _, row in user_logs_df.iterrows():
         if pd.notna(row['Date']):
             date_str = row['Date'].strftime('%Y-%m-%d')
             mood_by_date[date_str] = row['Mood_Score']
     
-    # Create the calendar header
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown(f"### {current_date.strftime('%B %Y')}")
     
-    # Create weekday headers
     weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
     cols = st.columns(7)
     for i, col in enumerate(cols):
         col.markdown(f"**{weekdays[i]}**", help=weekdays[i])
     
-    # Create the calendar grid
     for week in cal:
         cols = st.columns(7)
         for i, day in enumerate(week):
@@ -206,7 +208,7 @@ if user_logs_df.empty:
     st.stop()
 
 # --- Process Data ---
-user_logs_df['Date'] = pd.to_datetime(user_logs_df['date'])
+user_logs_df['Date'] = pd.to_datetime(user_logs_df['date']).dt.date  # ✅ Fix here (date only)
 mood_mapping = {"Happy": 5, "Neutral": 3, "Anxious": 2, "Sad": 1, "Angry": 1}
 user_logs_df['Mood_Score'] = user_logs_df['mood'].map(mood_mapping).fillna(3)
 
@@ -214,14 +216,13 @@ user_logs_df['Mood_Score'] = user_logs_df['mood'].map(mood_mapping).fillna(3)
 tab1, tab2 = st.tabs(["📈 Weekly Summary", "📅 Monthly Calendar"])
 
 with tab1:
-    today = pd.to_datetime(datetime.date.today())
-    seven_days_ago = today - pd.to_timedelta('6D')
+    today = pd.to_datetime(datetime.date.today()).date()
+    seven_days_ago = today - datetime.timedelta(days=6)
     df_week = user_logs_df[user_logs_df['Date'] >= seven_days_ago].copy()
     
     if not df_week.empty:
         df_week.sort_values(by="Date", inplace=True)
         
-        # Top Metric Cards
         st.markdown("### **Your Week at a Glance**")
         col1, col2, col3 = st.columns(3)
         
@@ -254,7 +255,6 @@ with tab1:
         
         st.markdown("---")
         
-        # 7-Day Mood Trend Chart
         st.markdown("### **Your 7-Day Mood Trend**")
         if len(df_week) > 1:
             fig, ax = plt.subplots(figsize=(10, 4))
@@ -264,14 +264,17 @@ with tab1:
             ax.set_yticklabels(["😢 Sad", "😟 Anxious", "😐 Neutral", "😊 Good", "😄 Happy"])
             ax.grid(True, alpha=0.3)
             ax.set_title("Your Mood Over the Past Week")
-            plt.xticks(rotation=45)
+
+            # ✅ Date-only formatting
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            fig.autofmt_xdate()
+
             plt.tight_layout()
             st.pyplot(fig)
             plt.close(fig)
         else:
             st.info("Not enough data to show a trend chart. Log more moods to see your pattern!")
         
-        # Goals and Download Section
         col_left, col_right = st.columns([2, 1])
         
         with col_left:
@@ -297,7 +300,6 @@ with tab1:
 with tab2:
     st.markdown("### **Your Monthly Mood Calendar**")
     
-    # Month navigation
     current_date = datetime.date.today()
     col1, col2, col3 = st.columns([1, 2, 1])
     
@@ -312,14 +314,11 @@ with tab2:
             st.session_state.calendar_date = next_month.replace(day=1)
             st.rerun()
     
-    # Initialize calendar date in session state
     if 'calendar_date' not in st.session_state:
         st.session_state.calendar_date = current_date
     
-    # Create the calendar
     create_monthly_calendar(user_logs_df, st.session_state.calendar_date)
     
-    # Legend
     st.markdown("---")
     st.markdown("**Mood Legend:**")
     legend_cols = st.columns(5)
