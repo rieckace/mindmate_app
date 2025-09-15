@@ -25,6 +25,7 @@ requests==2.31.0
 python-dotenv==1.0.1
 reportlab==4.0.4
 youtube-search-python==1.6.6
-youtube-search==2.0.0
+
+youtube-search==2.1.2
 Pillow==9.5.0
 protobuf==4.25.3
